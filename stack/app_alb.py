@@ -7,6 +7,8 @@ import os
 from aws_cdk import (
     aws_ec2 as ec2,
     aws_ecs as ecs,
+    aws_elasticloadbalancingv2 as elb,
+    aws_elasticloadbalancingv2_targets as elb_targets,
     aws_lambda as _lambda,
     core,
 )
@@ -77,6 +79,7 @@ class titilerStack(core.Stack):
             cluster=cluster,
             desired_count=mincount,
             task_definition=task_definition,
+            assign_public_ip=True,
         )
 
         # scalable_target = fargate_service.auto_scale_task_count(
@@ -101,7 +104,7 @@ class titilerStack(core.Stack):
             description="Allows traffic on port 80 from NLB",
         )
 
-        _lambda.Function(
+        lambda_function = _lambda.Function(
             self,
             f"{id}-lambda",
             runtime=_lambda.Runtime.PYTHON_3_7,
@@ -121,6 +124,77 @@ class titilerStack(core.Stack):
                 VSI_CACHE_SIZE="1000000",
             ),
         )
+
+        lambda_target = elb_targets.LambdaTarget(fn=lambda_function)
+
+        load_balancer = elb.ApplicationLoadBalancer(self, f"{id}-alb", vpc=vpc)
+
+        application_listener = elb.ApplicationListener(
+            self, f"{id}-listener", load_balancer=load_balancer, port=80, open=True,
+        )
+
+        fargate_target_group = application_listener.add_targets(
+            f"{id}-fargate-target",
+            target_group_name="fargate-target-group",
+            port=80,
+            targets=[fargate_service],
+        )
+
+        lambda_target_group = application_listener.add_targets(
+            f"{id}-lambda-target",
+            target_group_name="lambda-target-group",
+            targets=[lambda_target],
+        )
+
+        _ = elb.CfnListenerRule(
+            self,
+            f"{id}-fargate-target-group-weighting",
+            actions=[
+                elb.CfnListenerRule.ActionProperty(
+                    type="forward",
+                    order=1,
+                    forward_config=elb.CfnListenerRule.ForwardConfigProperty(
+                        target_groups=[
+                            elb.CfnListenerRule.TargetGroupTupleProperty(
+                                target_group_arn=fargate_target_group.target_group_arn,
+                                weight=50,
+                            ),
+                            elb.CfnListenerRule.TargetGroupTupleProperty(
+                                target_group_arn=lambda_target_group.target_group_arn,
+                                weight=50,
+                            ),
+                        ]
+                    ),
+                )
+            ],
+            conditions=[
+                elb.CfnListenerRule.RuleConditionProperty(
+                    path_pattern_config=elb.CfnListenerRule.PathPatternConfigProperty(
+                        values=["/"]
+                    )
+                )
+            ],
+            listener_arn=application_listener.listener_arn,
+            priority=1,
+        )
+
+        # lambda_listener_rule = elb.ApplicationListenerRule(
+        #     self,
+        #     f"{id}-lambda-listener-rule",
+        #     listener=application_listener,
+        #     priority=50,
+        #     path_pattern='/',
+        #     target_groups=[lambda_target_group],
+        # )
+        #
+        # fargate_listener_rule = elb.ApplicationListenerRule(
+        #     self,
+        #     f"{id}-fargate-listener-rule",
+        #     listener=application_listener,
+        #     priority=49,
+        #     path_pattern='/',
+        #     target_groups=[fargate_target_group]
+        # )
 
 
 app = core.App()
