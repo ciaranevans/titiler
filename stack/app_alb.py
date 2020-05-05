@@ -133,67 +133,50 @@ class titilerStack(core.Stack):
             self, f"{id}-listener", load_balancer=load_balancer, port=80, open=True,
         )
 
-        fargate_target_group = application_listener.add_targets(
+        _ = application_listener.add_targets(
             f"{id}-fargate-target",
             target_group_name="fargate-target-group",
             port=80,
             targets=[fargate_service],
         )
 
-        lambda_target_group = application_listener.add_targets(
+        _ = application_listener.add_targets(
             f"{id}-lambda-target",
             target_group_name="lambda-target-group",
             targets=[lambda_target],
         )
 
-        _ = elb.CfnListenerRule(
-            self,
-            f"{id}-fargate-target-group-weighting",
-            actions=[
-                elb.CfnListenerRule.ActionProperty(
-                    type="forward",
-                    order=1,
-                    forward_config=elb.CfnListenerRule.ForwardConfigProperty(
-                        target_groups=[
-                            elb.CfnListenerRule.TargetGroupTupleProperty(
-                                target_group_arn=fargate_target_group.target_group_arn,
-                                weight=50,
-                            ),
-                            elb.CfnListenerRule.TargetGroupTupleProperty(
-                                target_group_arn=lambda_target_group.target_group_arn,
-                                weight=50,
-                            ),
-                        ]
-                    ),
-                )
-            ],
-            conditions=[
-                elb.CfnListenerRule.RuleConditionProperty(
-                    path_pattern_config=elb.CfnListenerRule.PathPatternConfigProperty(
-                        values=["/"]
-                    )
-                )
-            ],
-            listener_arn=application_listener.listener_arn,
-            priority=1,
-        )
-
-        # lambda_listener_rule = elb.ApplicationListenerRule(
+        # Attempt at adding weighted Target Groups from https://aws.amazon.com/blogs/aws/new-application-load-balancer-simplifies-deployment-with-weighted-target-groups/
+        # _ = elb.CfnListenerRule(
         #     self,
-        #     f"{id}-lambda-listener-rule",
-        #     listener=application_listener,
-        #     priority=50,
-        #     path_pattern='/',
-        #     target_groups=[lambda_target_group],
-        # )
-        #
-        # fargate_listener_rule = elb.ApplicationListenerRule(
-        #     self,
-        #     f"{id}-fargate-listener-rule",
-        #     listener=application_listener,
-        #     priority=49,
-        #     path_pattern='/',
-        #     target_groups=[fargate_target_group]
+        #     f"{id}-fargate-target-group-weighting",
+        #     actions=[
+        #         elb.CfnListenerRule.ActionProperty(
+        #             type="forward",
+        #             order=1,
+        #             forward_config=elb.CfnListenerRule.ForwardConfigProperty(
+        #                 target_groups=[
+        #                     elb.CfnListenerRule.TargetGroupTupleProperty(
+        #                         target_group_arn=fargate_target_group.target_group_arn,
+        #                         weight=50,
+        #                     ),
+        #                     elb.CfnListenerRule.TargetGroupTupleProperty(
+        #                         target_group_arn=lambda_target_group.target_group_arn,
+        #                         weight=50,
+        #                     ),
+        #                 ]
+        #             ),
+        #         )
+        #     ],
+        #     conditions=[
+        #         elb.CfnListenerRule.RuleConditionProperty(
+        #             path_pattern_config=elb.CfnListenerRule.PathPatternConfigProperty(
+        #                 values=["/"]
+        #             )
+        #         )
+        #     ],
+        #     listener_arn=application_listener.listener_arn,
+        #     priority=1,
         # )
 
 
