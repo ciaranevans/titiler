@@ -5,11 +5,15 @@ from typing import Any, Union
 import os
 
 from aws_cdk import (
+    aws_cloudwatch as cw,
+    aws_cloudwatch_actions as cwa,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_elasticloadbalancingv2 as elb,
     aws_elasticloadbalancingv2_targets as elb_targets,
     aws_lambda as _lambda,
+    aws_lambda_event_sources as lambda_events,
+    aws_sns as sns,
     core,
 )
 
@@ -91,9 +95,9 @@ class titilerStack(core.Stack):
             description="Allows traffic on port 80 from NLB",
         )
 
-        lambda_function = _lambda.Function(
+        titiler_lambda_function = _lambda.Function(
             self,
-            f"{id}-lambda",
+            f"{id}-titiler-lambda",
             runtime=_lambda.Runtime.PYTHON_3_7,
             code=_lambda.Code.asset(TitilerLambdaBuilder().get_package_path()),
             handler="handler.handler",
@@ -112,7 +116,7 @@ class titilerStack(core.Stack):
             ),
         )
 
-        lambda_target = elb_targets.LambdaTarget(fn=lambda_function)
+        lambda_target = elb_targets.LambdaTarget(fn=titiler_lambda_function)
 
         load_balancer = elb.ApplicationLoadBalancer(self, f"{id}-alb", vpc=vpc)
 
@@ -120,14 +124,14 @@ class titilerStack(core.Stack):
             self, f"{id}-listener", load_balancer=load_balancer, port=80, open=True,
         )
 
-        fargate_target_group = application_listener.add_targets(
+        ecs_target_group = application_listener.add_targets(
             f"{id}-fargate-target",
             target_group_name="fargate-target-group",
             port=80,
             targets=[fargate_service],
         )
 
-        _ = application_listener.add_targets(
+        lambda_target_group = application_listener.add_targets(
             f"{id}-lambda-target",
             target_group_name="lambda-target-group",
             targets=[lambda_target],
@@ -143,41 +147,49 @@ class titilerStack(core.Stack):
             requests_per_target=50,
             scale_in_cooldown=core.Duration.seconds(240),
             scale_out_cooldown=core.Duration.seconds(30),
-            target_group=fargate_target_group,
+            target_group=ecs_target_group,
         )
 
-        # Attempt at adding weighted Target Groups from https://aws.amazon.com/blogs/aws/new-application-load-balancer-simplifies-deployment-with-weighted-target-groups/
-        # _ = elb.CfnListenerRule(
-        #     self,
-        #     f"{id}-fargate-target-group-weighting",
-        #     actions=[
-        #         elb.CfnListenerRule.ActionProperty(
-        #             type="forward",
-        #             order=1,
-        #             forward_config=elb.CfnListenerRule.ForwardConfigProperty(
-        #                 target_groups=[
-        #                     elb.CfnListenerRule.TargetGroupTupleProperty(
-        #                         target_group_arn=fargate_target_group.target_group_arn,
-        #                         weight=50,
-        #                     ),
-        #                     elb.CfnListenerRule.TargetGroupTupleProperty(
-        #                         target_group_arn=lambda_target_group.target_group_arn,
-        #                         weight=50,
-        #                     ),
-        #                 ]
-        #             ),
-        #         )
-        #     ],
-        #     conditions=[
-        #         elb.CfnListenerRule.RuleConditionProperty(
-        #             path_pattern_config=elb.CfnListenerRule.PathPatternConfigProperty(
-        #                 values=["/"]
-        #             )
-        #         )
-        #     ],
-        #     listener_arn=application_listener.listener_arn,
-        #     priority=1,
-        # )
+        titiler_overwhelmed_topic = sns.Topic(
+            self,
+            f"{id}-overwhelmed-topic",
+            display_name="Titiler Lambda Concurrent Executions Alarm Topic",
+        )
+
+        action = cwa.SnsAction(titiler_overwhelmed_topic)
+
+        titiler_lambda_invocations_metric = titiler_lambda_function.metric(
+            "ConcurrentExecutions"
+        )
+
+        alarm = cw.Alarm(
+            self,
+            f"{id}-titiler-concurrent-executions-alarm",
+            metric=titiler_lambda_invocations_metric,
+            threshold=900,
+            evaluation_periods=3,
+        )
+
+        alarm.add_alarm_action(action)
+
+        getting_close_weighting_function = _lambda.Function(
+            self,
+            f"{id}-getting-close-function",
+            runtime=_lambda.Runtime.PYTHON_3_7,
+            code=_lambda.Code.asset("./lambda/getting_close_weighting"),
+            handler="getting_close_handler.handler",
+            memory_size=128,
+            timeout=core.Duration.seconds(1),
+            environment=dict(
+                LISTENER_ARN=application_listener.listener_arn,
+                LAMBDA_TARGET_GROUP_ARN=lambda_target_group.target_group_arn,
+                ECS_TARGET_GROUP_ARN=ecs_target_group.target_group_arn,
+            ),
+        )
+
+        getting_close_weighting_function.add_event_source(
+            source=lambda_events.SnsEventSource(titiler_overwhelmed_topic)
+        )
 
 
 app = core.App()

@@ -15,16 +15,20 @@ inst_reqs = [
 ]
 
 extra_reqs = {
-    "dev": ["pytest", "pytest-cov", "pytest-asyncio", "pre-commit"],
+    "dev": ["boto3", "pytest", "pytest-cov", "pytest-asyncio", "pre-commit"],
     "server": ["click==7.0", "uvicorn"],
     "deploy": [
         "aws-cdk.aws_apigateway",
         "aws-cdk.aws_autoscaling",
+        "aws-cdk.aws_cloudwatch",
+        "aws-cdk.aws_cloudwatch_actions",
         "aws-cdk.aws_ec2",
         "aws-cdk.aws_ecs",
         "aws-cdk.aws_ecs_patterns",
-        "aws-cdk.aws_elasticloadbalancingv2_targets"
-        "aws-cdk.aws-lambda"
+        "aws-cdk.aws_elasticloadbalancingv2_targets",
+        "aws-cdk.aws-lambda",
+        "aws-cdk.aws-lambda-event-sources",
+        "aws-cdl.aws-sns",
         "aws-cdk.core",
         "docker",
     ],
