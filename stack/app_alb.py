@@ -82,19 +82,6 @@ class titilerStack(core.Stack):
             assign_public_ip=True,
         )
 
-        # scalable_target = fargate_service.auto_scale_task_count(
-        #     min_capacity=mincount, max_capacity=maxcount
-        # )
-        #
-        # # https://github.com/awslabs/aws-rails-provisioner/blob/263782a4250ca1820082bfb059b163a0f2130d02/lib/aws-rails-provisioner/scaling.rb#L343-L387
-        # scalable_target.scale_on_request_count(
-        #     "RequestScaling",
-        #     requests_per_target=50,
-        #     scale_in_cooldown=core.Duration.seconds(240),
-        #     scale_out_cooldown=core.Duration.seconds(30),
-        #     target_group=fargate_service.target_group,
-        # )
-
         fargate_service.connections.allow_from_any_ipv4(
             port_range=ec2.Port(
                 protocol=ec2.Protocol.ALL,
@@ -133,7 +120,7 @@ class titilerStack(core.Stack):
             self, f"{id}-listener", load_balancer=load_balancer, port=80, open=True,
         )
 
-        _ = application_listener.add_targets(
+        fargate_target_group = application_listener.add_targets(
             f"{id}-fargate-target",
             target_group_name="fargate-target-group",
             port=80,
@@ -144,6 +131,19 @@ class titilerStack(core.Stack):
             f"{id}-lambda-target",
             target_group_name="lambda-target-group",
             targets=[lambda_target],
+        )
+
+        scalable_target = fargate_service.auto_scale_task_count(
+            min_capacity=mincount, max_capacity=maxcount
+        )
+
+        # https://github.com/awslabs/aws-rails-provisioner/blob/263782a4250ca1820082bfb059b163a0f2130d02/lib/aws-rails-provisioner/scaling.rb#L343-L387
+        scalable_target.scale_on_request_count(
+            "FargateRequestScaling",
+            requests_per_target=50,
+            scale_in_cooldown=core.Duration.seconds(240),
+            scale_out_cooldown=core.Duration.seconds(30),
+            target_group=fargate_target_group,
         )
 
         # Attempt at adding weighted Target Groups from https://aws.amazon.com/blogs/aws/new-application-load-balancer-simplifies-deployment-with-weighted-target-groups/
