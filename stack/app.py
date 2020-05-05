@@ -104,6 +104,19 @@ class titilerStack(core.Stack):
             runtime=_lambda.Runtime.PYTHON_3_7,
             code=_lambda.Code.asset(TitilerLambdaBuilder().get_package_path()),
             handler="handler.handler",
+            memory_size=2048,
+            timeout=core.Duration.seconds(10),
+            environment=dict(
+                CPL_TMPDIR="/tmp",
+                GDAL_CACHEMAX="25%",
+                GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+                GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
+                GDAL_HTTP_MULTIPLEX="YES",
+                GDAL_HTTP_VERSION="2",
+                PYTHONWARNINGS="ignore",
+                VSI_CACHE="TRUE",
+                VSI_CACHE_SIZE="1000000",
+            ),
         )
 
         apigw.LambdaRestApi(self, f"{id}-lambda-api-gateway", handler=titiler_lambda)
